@@ -1,0 +1,857 @@
+{
+  "name": "Clinic Follow-Up Bot — AI Reply Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh_main",
+      "name": "Webhook — Clinic WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        208,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\":\"ok\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond_ok",
+      "name": "Respond 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        432,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst data = body.data || {};\nconst key = data.key || {};\nconst msgObj = data.message || {};\nconst phone = (key.remoteJid || '').replace('@s.whatsapp.net', '').replace('@g.us', '');\n// Prefer pre-extracted text from the backend (avoids Serveo encoding corruption)\nconst rawMsg = body.resolved_text\n  || msgObj.conversation\n  || (msgObj.extendedTextMessage && msgObj.extendedTextMessage.text)\n  || (msgObj.imageMessage && msgObj.imageMessage.caption)\n  || '';\nconst messageId = key.id || '';\nconst fromMe = key.fromMe === true;\nconst pushName = body.pushName || data.pushName || '';\nconst instanceName = body.instance || body.instanceName || '';\nlet norm = phone.replace(/\\D/g, '');\nif (norm.length === 10 && !norm.startsWith('20')) norm = '20' + norm;\nif (norm.length > 0 && !norm.startsWith('+')) norm = '+' + norm;\nreturn [{ json: { phone: norm, message: rawMsg, messageId, fromMe, pushName, instanceName } }];\n"
+      },
+      "id": "extract_code",
+      "name": "Extract & Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.fromMe }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.message }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_valid_msg",
+      "name": "Valid Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        864,
+        304
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "noop_skip",
+      "name": "Skip Invalid",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.CLINIC_BACKEND_URL }}/internal/n8n/message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "{{ $env.N8N_INTERNAL_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Cookie",
+              "value": "serveo-skip-browser-warning=true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"clinic_id\": 1, \"patient_phone\": $json.phone.replace('+', ''), \"text\": $json.message, \"direction\": \"inbound\" }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "save_inbound_http",
+      "name": "Save Inbound to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1088,
+        112
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH mem AS (SELECT COALESCE(json_agg(json_build_object('role', role, 'content', content, 'sentiment', sentiment, 'intent', intent) ORDER BY timestamp ASC), '[]'::json) as memory_rows FROM (SELECT * FROM conversation_memory WHERE patient_phone = '{{ $('Extract & Normalize').first().json.phone }}' ORDER BY timestamp DESC LIMIT 20) sub), prof AS (SELECT row_to_json(p.*) as profile FROM patient_followup p WHERE patient_phone = '{{ $('Extract & Normalize').first().json.phone }}' LIMIT 1) SELECT (SELECT memory_rows FROM mem) as memory_rows, (SELECT profile FROM prof) as profile",
+        "options": {}
+      },
+      "id": "pg_load_all",
+      "name": "Load Memory + Profile",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ext = $('Extract & Normalize').first().json;\nconst db = $input.first().json;\nconst phone = ext.phone;\nconst message = ext.message;\nconst pushName = ext.pushName;\nlet profile = {};\ntry { profile = typeof db.profile === 'string' ? JSON.parse(db.profile) : (db.profile || {}); } catch(e) {}\nlet mem = [];\ntry { mem = typeof db.memory_rows === 'string' ? JSON.parse(db.memory_rows) : (db.memory_rows || []); } catch(e) {}\nif (profile.opted_out === true) return [];\nconst pName = profile.patient_name || pushName || '';\nconst cName = profile.clinic_name || 'عيادة دكتور سمايل للأسنان';\nconst mPhone = profile.manager_phone || '20XXXXXXXXXX';\nconst today = new Date();\nconst todayStr = today.toISOString().split('T')[0];\nconst days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];\nconst todayDay = days[today.getDay()];\nconst dateMap = {};\nfor (let i = 1; i <= 14; i++) {\n  const d = new Date(today); d.setDate(today.getDate() + i);\n  const dStr = d.toISOString().split('T')[0];\n  dateMap[days[d.getDay()].toLowerCase()] = dStr;\n}\nconst alreadyBooked = (Array.isArray(mem) ? mem : []).some(r => String(r.content || '').includes('<<BOOKED>>'));\nconst sys = `You are the WhatsApp booking assistant for ${cName}.\nToday: ${todayStr} (${todayDay}).\n${alreadyBooked ? '\\nSTATUS: BOOKING ALREADY COMPLETED THIS SESSION.\\n' : ''}\nDATE REFERENCE (use EXACTLY these for day names):\n- Saturday: ${dateMap['saturday']}\n- Sunday: ${dateMap['sunday']}\n- Monday: ${dateMap['monday']}\n- Tuesday: ${dateMap['tuesday']}\n- Wednesday: ${dateMap['wednesday']}\n- Thursday: ${dateMap['thursday']}\n\nAVAILABLE DOCTORS:\n- Dr. Ahmed Hassan — General Dentistry\n- Dr. Mona Fathy — Orthodontics\n\nRULES:\n1. NEVER redirect to phone or website. Book 100% here on WhatsApp.\n2. Match patient language. Keep replies short (2-3 lines).\n3. Clinic open Sat-Thu 9AM-8PM. Closed Friday.\n4. BOOKING FLOW — one question per turn: Name → Date → Time → Doctor → Show summary once → Confirm.\n5. CONFIRMATION DETECTION — after showing the summary, ANY of these = YES, set booking_ready=true:\n   ماشي / تمام / مؤكد / نعم / اه / اهه / اوكيه / اوكي / ايوه / يلا / صح / طيب / كويس / حسنا / مظبوط / موافق / عمل / yes / ok / okay / sure / confirm / good / fine / go ahead / do it\n   CRITICAL: if you already showed the booking summary ONCE and patient sends any positive word → booking_ready=true. NEVER ask to confirm twice.\n6. If BOOKING ALREADY COMPLETED: reply \"موعدك محجوز بالفعل ✅ هل تحتاج مساعدة أخرى؟\" and booking_ready=false.\n7. booking_details.doctor_name MUST be exactly \"Dr. Ahmed Hassan\" or \"Dr. Mona Fathy\".\n8. Do NOT say clinic is closed once patient agreed to an alternative day.\n9. Patient phone: ${phone}  Known name: ${pName || 'not provided'}\n\nReturn ONLY this JSON:\n{\n  \"reply_message\": \"\",\n  \"sentiment\": \"positive|negative|neutral\",\n  \"sentiment_score\": 0.0,\n  \"intent\": \"booking|complaint|inquiry|compliment|other\",\n  \"escalate\": false,\n  \"escalate_reason\": \"\",\n  \"send_review_link\": false,\n  \"detected_language\": \"arabic|english|arabizi\",\n  \"booking_ready\": false,\n  \"booking_details\": {\n    \"patient_name\": \"\",\n    \"appointment_date\": \"\",\n    \"appointment_time\": \"\",\n    \"doctor_name\": \"\",\n    \"notes\": \"\"\n  }\n}`;\nconst msgs = [{ role: 'system', content: sys }];\nfor (const r of (Array.isArray(mem) ? mem : [])) {\n  msgs.push({ role: r.role === 'assistant' ? 'assistant' : 'user', content: String(r.content || '') });\n}\nmsgs.push({ role: 'user', content: message });\nconst sid = phone + '_' + todayStr;\nreturn [{ json: { phone, message, pushName, patientName: pName, clinicName: cName, managerPhone: mPhone, sessionId: sid, groqPayload: { model: 'llama-3.3-70b-versatile', messages: msgs, temperature: 0.1, max_tokens: 600, response_format: { type: 'json_object' } } } }];\n"
+      },
+      "id": "build_groq",
+      "name": "Build Groq Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GROQ_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.groqPayload) }}",
+        "options": {}
+      },
+      "id": "groq_http",
+      "name": "Groq AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1744,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Build Groq Payload').first().json;\nconst gr = $input.first().json;\nlet ai = {};\ntry {\n  const c = gr.choices[0].message.content;\n  ai = typeof c === 'string' ? JSON.parse(c) : c;\n} catch(e) {\n  ai = { reply_message: 'نرد عليك خلال دقايق، شكراً لصبرك 🙏', sentiment: 'neutral', sentiment_score: 0.5, intent: 'other', escalate: false, send_review_link: false, booking_ready: false, booking_details: {} };\n}\nconst esc = v => String(v || '').replace(/'/g, \"''\");\nconst bd = ai.booking_details || {};\nreturn [{ json: {\n  ...prev, ...ai,\n  phone: prev.phone, message: prev.message, pushName: prev.pushName,\n  patientName: prev.patientName, clinicName: prev.clinicName,\n  managerPhone: prev.managerPhone, sessionId: prev.sessionId,\n  safeMsg: esc(prev.message),\n  safeReply: esc(ai.reply_message || ''),\n  safeName: esc(bd.patient_name || prev.patientName || ''),\n  safeEscReason: esc(ai.escalate_reason || ''),\n  safeNote: esc(bd.notes || ''),\n  confidence: ai.confidence || 0.8,\n  sentiment_score: ai.sentiment_score || 0.5,\n  booking_ready: ai.booking_ready === true,\n  booking_name: bd.patient_name || prev.patientName || prev.pushName || '',\n  booking_date: bd.appointment_date || '',\n  booking_time: bd.appointment_time || '09:00',\n  booking_doctor: bd.doctor_name || '',\n  booking_notes: bd.notes || ''\n} }];"
+      },
+      "id": "parse_groq",
+      "name": "Parse Groq Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversation_memory (patient_phone, role, content, sentiment, intent, confidence, session_id) VALUES ('{{ $json.phone }}', 'user', '{{ $json.safeMsg }}', '{{ $json.sentiment }}', '{{ $json.intent }}', {{ $json.confidence || 0.5 }}, '{{ $json.sessionId }}')",
+        "options": {}
+      },
+      "id": "pg_save_user",
+      "name": "Save User Turn",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversation_memory (patient_phone, role, content, sentiment, intent, confidence, session_id) VALUES ('{{ $json.phone }}', 'assistant', '{{ $json.safeReply }}', '{{ $json.sentiment }}', '{{ $json.intent }}', {{ $json.confidence || 0.5 }}, '{{ $json.sessionId }}')",
+        "options": {}
+      },
+      "id": "pg_save_ai",
+      "name": "Save AI Turn",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE patient_followup SET sentiment = '{{ $json.sentiment }}', sentiment_score = {{ $json.sentiment_score || 0.5 }}, patient_replied = true, last_reply = '{{ $json.safeMsg }}', last_intent = '{{ $json.intent }}', review_link_sent = CASE WHEN {{ $json.send_review_link === true }} THEN true ELSE review_link_sent END, escalated_to_manager = CASE WHEN {{ $json.escalate === true }} THEN true ELSE escalated_to_manager END, escalation_reason = CASE WHEN '{{ $json.safeEscReason }}' != '' THEN '{{ $json.safeEscReason }}' ELSE escalation_reason END, updated_at = NOW() WHERE patient_phone = '{{ $json.phone }}'",
+        "options": {}
+      },
+      "id": "pg_update_patient",
+      "name": "Update Patient Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO clinic_operations_log (patient_phone, event_type, event_data, sentiment_score) VALUES ('{{ $json.phone }}', 'whatsapp_reply', '{\"intent\":\"{{ $json.intent }}\",\"sentiment\":\"{{ $json.sentiment }}\",\"escalate\":{{ $json.escalate === true }},\"booking_ready\":{{ $json.booking_ready === true }}}'::jsonb, {{ $json.sentiment_score || 0.5 }})",
+        "options": {}
+      },
+      "id": "pg_log_ops",
+      "name": "Log to Operations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "br1",
+              "leftValue": "={{ $('Parse Groq Response').first().json.booking_ready }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_booking_ready",
+      "name": "Booking Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.CLINIC_BACKEND_URL }}/internal/n8n/appointment",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "{{ $env.N8N_INTERNAL_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Cookie",
+              "value": "serveo-skip-browser-warning=true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"clinic_id\": 1, \"patient_phone\": $('Parse Groq Response').first().json.phone.replace('+',''), \"patient_name\": $('Parse Groq Response').first().json.booking_name, \"appointment_date\": $('Parse Groq Response').first().json.booking_date, \"appointment_time\": $('Parse Groq Response').first().json.booking_time, \"doctor_name\": $('Parse Groq Response').first().json.booking_doctor, \"notes\": $('Parse Groq Response').first().json.booking_notes }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "create_appt_http",
+      "name": "Create Appointment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3072,
+        -80
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\"number\": $('Extract & Normalize').first().json.phone.replace('+', ''), \"text\": $('Parse Groq Response').first().json.reply_message}) }}",
+        "options": {}
+      },
+      "id": "send_reply_http",
+      "name": "Send Patient Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3280,
+        112
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.CLINIC_BACKEND_URL }}/internal/n8n/message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "{{ $env.N8N_INTERNAL_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Cookie",
+              "value": "serveo-skip-browser-warning=true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"clinic_id\": 1, \"patient_phone\": $('Extract & Normalize').first().json.phone.replace('+', ''), \"text\": $('Parse Groq Response').first().json.reply_message, \"direction\": \"outbound\" }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "save_reply_http",
+      "name": "Save AI Reply to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3504,
+        112
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s1",
+                    "leftValue": "={{ $json.escalate }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ESCALATE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s2",
+                    "leftValue": "={{ $json.send_review_link }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REVIEW"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch_route",
+      "name": "Route Extra Actions",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        3728,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\"number\": $('Build Groq Payload').first().json.managerPhone, \"text\": \"🚨 تنبيه: مريض يحتاج متابعة\\nاسم: \" + $('Parse Groq Response').first().json.booking_name + \"\\nرقم: \" + $('Parse Groq Response').first().json.phone + \"\\nرسالة: \" + $('Extract & Normalize').first().json.message}) }}",
+        "options": {}
+      },
+      "id": "notify_manager_http",
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3952,
+        -48
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\"number\": $('Extract & Normalize').first().json.phone.replace('+', ''), \"text\": \"شكراً لزيارتك! 😊\\n\" + $('Build Groq Payload').first().json.googleMapsLink}) }}",
+        "options": {}
+      },
+      "id": "send_review_http",
+      "name": "Send Review Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3952,
+        112
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "noop_done",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3952,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversation_memory (patient_phone, role, content, sentiment, intent, confidence, session_id) VALUES ('{{ $('Parse Groq Response').first().json.phone }}', 'system', '<<BOOKED>>', 'positive', 'booking', 1.0, '{{ $('Parse Groq Response').first().json.sessionId }}')",
+        "options": {}
+      },
+      "id": "pg_mark_booked",
+      "name": "Mark Booking Done",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        -240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook — Clinic WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 OK": {
+      "main": [
+        [
+          {
+            "node": "Extract & Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract & Normalize": {
+      "main": [
+        [
+          {
+            "node": "Valid Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Message?": {
+      "main": [
+        [
+          {
+            "node": "Save Inbound to Backend",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Inbound to Backend": {
+      "main": [
+        [
+          {
+            "node": "Load Memory + Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Memory + Profile": {
+      "main": [
+        [
+          {
+            "node": "Build Groq Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Groq Payload": {
+      "main": [
+        [
+          {
+            "node": "Groq AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq AI": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq Response": {
+      "main": [
+        [
+          {
+            "node": "Save User Turn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save User Turn": {
+      "main": [
+        [
+          {
+            "node": "Save AI Turn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save AI Turn": {
+      "main": [
+        [
+          {
+            "node": "Update Patient Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Patient Record": {
+      "main": [
+        [
+          {
+            "node": "Log to Operations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Operations": {
+      "main": [
+        [
+          {
+            "node": "Booking Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booking Ready?": {
+      "main": [
+        [
+          {
+            "node": "Create Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Patient Reply": {
+      "main": [
+        [
+          {
+            "node": "Save AI Reply to Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save AI Reply to Backend": {
+      "main": [
+        [
+          {
+            "node": "Route Extra Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Extra Actions": {
+      "main": [
+        [
+          {
+            "node": "Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Review Link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Appointment": {
+      "main": [
+        [
+          {
+            "node": "Mark Booking Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Booking Done": {
+      "main": [
+        [
+          {
+            "node": "Send Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "Africa/Cairo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": []
+}

@@ -1,0 +1,923 @@
+{
+  "name": "Appointment Booking",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-1",
+      "name": "Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst phone = input.phone || '';\nconst message = input.message || '';\nconst name = input.name || phone;\nconst state = input.state || 'new';\nconst context_data = input.context_data || {};\n\nconst today = new Date().toISOString().split('T')[0];\n\nconst sysPrompt = 'You are a dental clinic receptionist in Cairo. Today is ' + today + '. Analyze the patient message and respond in the same language (Arabic or English). Return ONLY valid JSON with: intent (book_new/reschedule/cancel/unclear), language (ar/en), extracted_date (YYYY-MM-DD if date mentioned else null), extracted_time (HH:MM 24h if time mentioned else null), response_to_patient (reply in patient language; if date/time missing for booking ask for them).';\n\nconst userMsg = 'Patient: ' + name + ' | Phone: ' + phone + ' | State: ' + state + ' | Message: ' + message;\n\nconst groqBody = JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  messages: [\n    { role: 'system', content: sysPrompt },\n    { role: 'user', content: userMsg }\n  ],\n  temperature: 0.3,\n  max_tokens: 500,\n  response_format: { type: 'json_object' }\n});\n\nreturn [{ json: { phone, message, name, state, context_data, groqBody } }];"
+      },
+      "id": "code-2",
+      "name": "Build groq prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.groqBody }}",
+        "options": {}
+      },
+      "id": "http-3",
+      "name": "Call Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const groqRaw = $input.first().json;\nconst source = $('Build groq prompt').first().json;\nconst phone = source.phone;\nconst name = source.name;\nconst state = source.state;\nconst context_data = source.context_data || {};\nlet text = groqRaw && groqRaw.choices && groqRaw.choices[0]\n  ? (groqRaw.choices[0].message && groqRaw.choices[0].message.content) || '{}'\n  : '{}';\ntext = text.replace(/^```json\\n?/, '').replace(/```$/, '').trim();\nlet parsed;\ntry { parsed = JSON.parse(text); }\ncatch(e) { parsed = { intent: 'unclear', language: 'ar', response_to_patient: 'عذراً، لم أفهم. هل يمكنك التوضيح؟' }; }\nreturn [{ json: {\n  phone, name, state, context_data,\n  intent: parsed.intent || 'unclear',\n  language: parsed.language || 'ar',\n  extracted_date: parsed.extracted_date || null,\n  extracted_time: parsed.extracted_time || null,\n  response_to_patient: parsed.response_to_patient || 'كيف يمكنني مساعدتك؟'\n} }];"
+      },
+      "id": "code-4",
+      "name": "Parse Groq Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c1",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "book_new",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "book_new"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c2",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reschedule"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c3",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch-5",
+      "name": "Intent Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        880,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst phone = input.phone || '';\nconst name = input.name || phone;\nconst language = input.language || 'ar';\nconst extractedDate = input.extracted_date;\nconst extractedTime = input.extracted_time;\nconst responseToPat = input.response_to_patient || '';\n\nif (!extractedDate || !extractedTime) {\n  return [{ json: { phone, name, language, response_to_patient: responseToPat, ready: 'no' }}];\n}\n\nconst appointmentDatetime = extractedDate + 'T' + extractedTime + ':00+02:00';\nreturn [{ json: { phone, name, language, appointment_datetime: appointmentDatetime, response_to_patient: responseToPat, ready: 'yes' }}];"
+      },
+      "id": "code-prep-book",
+      "name": "Prepare Booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sb1",
+                    "leftValue": "={{ $json.ready }}",
+                    "rightValue": "yes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ready"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch-book",
+      "name": "Check Ready to Book",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1328,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM book_appointment($1, $2, $3::timestamptz, $4, $5)",
+        "options": {
+          "queryReplacement": "={{ [$json.phone, $json.name, $json.appointment_datetime, 'Dr. Ahmed', $json.language || 'ar'] }}"
+        }
+      },
+      "id": "pg-book-insert",
+      "name": "Insert Appointment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1552,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const booked = $input.first().json;\nconst prep = $('Prepare Booking').first().json;\nconst lang = prep.language || 'ar';\nconst phone = prep.phone;\n\nif (!booked.id) {\n  const txt = lang === 'ar' ? 'عذراً، لم نتمكن من تأكيد الحجز. يرجى المحاولة مرة أخرى.' : 'Sorry, we could not confirm your booking. Please try again.';\n  return [{ json: { phone, reply_text: txt, new_state: 'booking', new_context: {} }}];\n}\n\nconst dateStr = booked.appointment_date || '';\nconst timeStr = booked.appointment_time ? String(booked.appointment_time).substring(0, 5) : '';\n\nconst msg = lang === 'ar'\n  ? 'تم تأكيد موعدك! \\nالتاريخ: ' + dateStr + '\\nالوقت: ' + timeStr + '\\nرقم الموعد: ' + booked.id\n  : 'Your appointment is confirmed!\\nDate: ' + dateStr + '\\nTime: ' + timeStr + '\\nBooking ID: ' + booked.id;\n\nreturn [{ json: { phone, reply_text: msg, new_state: 'booked', new_context: { appointment_id: booked.id } }}];"
+      },
+      "id": "code-book-reply",
+      "name": "Booking Confirm Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(\n  (SELECT row_to_json(a) FROM (\n    SELECT id, appointment_date::text AS apt_date, to_char(appointment_time, 'HH24:MI') AS apt_time\n    FROM appointments\n    WHERE patient_phone = $1 AND status = 'scheduled'\n    ORDER BY appointment_date ASC, appointment_time ASC LIMIT 1\n  ) a),\n  '{\"id\": null}'::json\n) AS appointment",
+        "options": {
+          "queryReplacement": "={{ [$json.phone] }}"
+        }
+      },
+      "id": "pg-res-lookup",
+      "name": "Reschedule Lookup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1104,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const lookupResult = $input.first().json;\nconst groqData = $('Parse Groq Response').first().json;\nconst apt = typeof lookupResult.appointment === 'string' ? JSON.parse(lookupResult.appointment) : (lookupResult.appointment || {});\nconst phone = groqData.phone;\nconst language = groqData.language || 'ar';\nconst newDate = groqData.extracted_date;\nconst newTime = groqData.extracted_time;\n\nif (!apt.id) {\n  const txt = language === 'ar' ? 'لم نجد موعداً محجوزاً لك. هل تريد حجز موعد جديد؟' : 'No existing appointment found. Would you like to book a new one?';\n  return [{ json: { phone, language, reply_text: txt, ready: 'no', new_state: 'booking', new_context: {} }}];\n}\n\nif (!newDate || !newTime) {\n  const txt = language === 'ar'\n    ? 'لديك موعد في ' + apt.apt_date + ' الساعة ' + apt.apt_time + '. ما هو التاريخ والوقت الجديد؟'\n    : 'You have an appointment on ' + apt.apt_date + ' at ' + apt.apt_time + '. What date and time would you like?';\n  return [{ json: { phone, language, reply_text: txt, ready: 'no', new_state: 'reschedule_pending', new_context: { appointment_id: apt.id } }}];\n}\n\nreturn [{ json: { phone, language, appointment_id: apt.id, new_date: newDate, new_time: newTime, ready: 'yes', new_state: 'rescheduled', new_context: {} }}];"
+      },
+      "id": "code-res-prep",
+      "name": "Prepare Reschedule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sr1",
+                    "leftValue": "={{ $json.ready }}",
+                    "rightValue": "yes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ready"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch-res",
+      "name": "Check Ready to Reschedule",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1552,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE appointments SET appointment_date = $2::date, appointment_time = $3::time WHERE id = $1::uuid RETURNING id, appointment_date::text, to_char(appointment_time, 'HH24:MI') AS apt_time",
+        "options": {
+          "queryReplacement": "={{ [$json.appointment_id, $json.new_date, $json.new_time] }}"
+        }
+      },
+      "id": "pg-res-update",
+      "name": "Reschedule Update",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1760,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const updated = $input.first().json;\nconst prep = $('Prepare Reschedule').first().json;\nconst phone = prep.phone;\nconst language = prep.language || 'ar';\nconst dateStr = updated.appointment_date || prep.new_date || '';\nconst timeStr = updated.apt_time || prep.new_time || '';\n\nconst msg = language === 'ar'\n  ? 'تم تحديث موعدك!\\nالتاريخ الجديد: ' + dateStr + '\\nالوقت الجديد: ' + timeStr\n  : 'Your appointment has been rescheduled!\\nNew date: ' + dateStr + '\\nNew time: ' + timeStr;\n\nreturn [{ json: { phone, reply_text: msg, new_state: 'rescheduled', new_context: { appointment_id: updated.id } }}];"
+      },
+      "id": "code-res-reply",
+      "name": "Reschedule Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(\n  (SELECT row_to_json(a) FROM (\n    SELECT id, appointment_date::text AS apt_date, to_char(appointment_time, 'HH24:MI') AS apt_time\n    FROM appointments\n    WHERE patient_phone = $1 AND status = 'scheduled'\n    ORDER BY appointment_date ASC, appointment_time ASC LIMIT 1\n  ) a),\n  '{\"id\": null}'::json\n) AS appointment",
+        "options": {
+          "queryReplacement": "={{ [$json.phone] }}"
+        }
+      },
+      "id": "pg-can-lookup",
+      "name": "Cancel Lookup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1104,
+        608
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const lookupResult = $input.first().json;\nconst groqData = $('Parse Groq Response').first().json;\nconst apt = typeof lookupResult.appointment === 'string' ? JSON.parse(lookupResult.appointment) : (lookupResult.appointment || {});\nconst phone = groqData.phone;\nconst language = groqData.language || 'ar';\n\nif (!apt.id) {\n  const txt = language === 'ar' ? 'لم نجد موعداً محجوزاً لك لإلغائه.' : 'No existing appointment found to cancel.';\n  return [{ json: { phone, language, reply_text: txt, ready: 'no', new_state: 'new', new_context: {} }}];\n}\n\nreturn [{ json: { phone, language, appointment_id: apt.id, apt_date: apt.apt_date, apt_time: apt.apt_time, ready: 'yes' }}];"
+      },
+      "id": "code-can-prep",
+      "name": "Prepare Cancel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sc1",
+                    "leftValue": "={{ $json.ready }}",
+                    "rightValue": "yes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ready"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch-can",
+      "name": "Check Ready to Cancel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1552,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE appointments SET status = 'cancelled' WHERE id = $1::uuid RETURNING id, appointment_date::text",
+        "options": {
+          "queryReplacement": "={{ [$json.appointment_id] }}"
+        }
+      },
+      "id": "pg-can-update",
+      "name": "Cancel Update",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1760,
+        608
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const updated = $input.first().json;\nconst prep = $('Prepare Cancel').first().json;\nconst phone = prep.phone;\nconst language = prep.language || 'ar';\nconst aptDate = prep.apt_date || updated.appointment_date || '';\n\nconst msg = language === 'ar'\n  ? 'تم إلغاء موعدك في ' + aptDate + ' بنجاح. نأمل رؤيتك مجدداً!'\n  : 'Your appointment on ' + aptDate + ' has been cancelled. We hope to see you again!';\n\nreturn [{ json: { phone, reply_text: msg, new_state: 'new', new_context: {} }}];"
+      },
+      "id": "code-can-reply",
+      "name": "Cancel Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({number: $json.phone, text: ($json.reply_text || $json.response_to_patient || 'Thank you for your message.')}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "http-21",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2208,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH clinic AS (\n  SELECT clinic_id FROM v_clinic_routing WHERE evolution_instance = 'REPLACE_WITH_YOUR_INSTANCE_NAME' LIMIT 1\n)\nINSERT INTO conversations (clinic_id, patient_phone, current_step, context)\nSELECT clinic_id, $1, $2, $3::jsonb FROM clinic\nON CONFLICT (clinic_id, patient_phone) DO UPDATE\n  SET current_step = EXCLUDED.current_step,\n      context = EXCLUDED.context,\n      updated_at = NOW()",
+        "options": {
+          "queryReplacement": "={{ [$json.phone, $json.new_state || 'booking_in_progress', JSON.stringify($json.new_context || {})] }}"
+        }
+      },
+      "id": "pg-22",
+      "name": "Update Conversation State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2432,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/chat/findMessages/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "{\"where\":{\"key\":{\"fromMe\":false}},\"limit\":1}",
+        "options": {}
+      },
+      "name": "Fetch WhatsApp Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -400,
+        704
+      ],
+      "id": "fetch-evo-c920392f"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nreturn [{ json: response }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        704
+      ],
+      "id": "5c3306cf-d745-4859-b5e3-5880f2b6f11d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "hasOutputParser": true,
+        "needsFallback": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -400,
+        912
+      ],
+      "id": "e48ddb5e-15fa-448f-9fcc-12d05ef602cf",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "canopylabs/orpheus-v1-english",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        1104
+      ],
+      "id": "ea7f0972-6951-4f8d-9c40-c11dae511dfa",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Groq account 4"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build groq prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build groq prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Groq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Groq": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq Response": {
+      "main": [
+        [
+          {
+            "node": "Intent Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Switch": {
+      "main": [
+        [
+          {
+            "node": "Prepare Booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reschedule Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Booking": {
+      "main": [
+        [
+          {
+            "node": "Check Ready to Book",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Ready to Book": {
+      "main": [
+        [
+          {
+            "node": "Insert Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Appointment": {
+      "main": [
+        [
+          {
+            "node": "Booking Confirm Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booking Confirm Reply": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reschedule Lookup": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reschedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Reschedule": {
+      "main": [
+        [
+          {
+            "node": "Check Ready to Reschedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Ready to Reschedule": {
+      "main": [
+        [
+          {
+            "node": "Reschedule Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reschedule Update": {
+      "main": [
+        [
+          {
+            "node": "Reschedule Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reschedule Reply": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Lookup": {
+      "main": [
+        [
+          {
+            "node": "Prepare Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Cancel": {
+      "main": [
+        [
+          {
+            "node": "Check Ready to Cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Ready to Cancel": {
+      "main": [
+        [
+          {
+            "node": "Cancel Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Update": {
+      "main": [
+        [
+          {
+            "node": "Cancel Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Reply": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Reply": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch WhatsApp Messages": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}

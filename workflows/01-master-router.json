@@ -1,0 +1,3125 @@
+{
+  "name": "MASTER ROUTER — Dr Smile Automation Core",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "master-router",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh_master",
+      "name": "Webhook — Master Router",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        208,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"received\" }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond_200",
+      "name": "Respond 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        464,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron_9am_r",
+      "name": "Cron 9AM — Pre-Visit",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        208,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "10 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron_9am_d5",
+      "name": "Cron 9AM — Day 5-7",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        208,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "cron_30m",
+      "name": "Cron Every 30min — Post-Visit",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        208,
+        1248
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "manual_trig",
+      "name": "Manual Trigger — Manager Alert",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        208,
+        1408
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst norm = (ph) => {\n  if (!ph) return null;\n  let p = String(ph).replace(/\\D/g, '');\n  if (p.startsWith('20')) return p;\n  if (p.length === 10) return '20' + p;\n  if (p.length === 11 && p.startsWith('0')) return '20' + p.slice(1);\n  return p;\n};\nlet event_type = body.event_type || null;\nlet phone = null;\nif (!event_type) {\n  const hasTally = !!(body.data && body.data.fields) || !!(body.fields);\n  const hasWA = !!(body.data && body.data.key);\n  const hasBooking = !!(body.patient_phone && body.appointment_date);\n  if (hasTally) event_type = 'tally_form_submission';\n  else if (hasWA) event_type = 'inbound_whatsapp';\n  else if (hasBooking) event_type = 'new_booking';\n  else event_type = 'fallback_unknown';\n}\nif (event_type === 'new_booking') phone = norm(body.patient_phone);\nelse if (event_type === 'inbound_whatsapp') {\n  const key = (body.data && body.data.key) || {};\n  phone = norm((key.remoteJid || '').replace('@s.whatsapp.net', '').replace('@g.us', ''));\n} else if (event_type === 'tally_form_submission') {\n  const fields = (body.data && body.data.fields) || body.fields || [];\n  const pf = fields.find(f => f.label && f.label.toLowerCase().includes('phone'));\n  if (pf) phone = norm(String(pf.value || '').replace(/\\D/g, ''));\n}\nreturn [{ json: { event_type, source: 'webhook', timestamp: new Date().toISOString(), phone, payload: body } }];"
+      },
+      "id": "norm_wh",
+      "name": "Normalize Webhook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { event_type: 'pre_visit_reminder_cron', source: 'cron', timestamp: new Date().toISOString(), phone: null, payload: {} } }];"
+      },
+      "id": "tag_9am_r",
+      "name": "Tag Pre-Visit Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { event_type: 'day5_followup_cron', source: 'cron', timestamp: new Date().toISOString(), phone: null, payload: {} } }];"
+      },
+      "id": "tag_9am_d5",
+      "name": "Tag Day 5-7 Followup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { event_type: 'post_visit_followup_cron', source: 'cron', timestamp: new Date().toISOString(), phone: null, payload: {} } }];"
+      },
+      "id": "tag_30m",
+      "name": "Tag Post-Visit Followup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        1248
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json || {};\nreturn [{ json: { event_type: 'manager_alert', source: 'manual', timestamp: new Date().toISOString(), phone: b.phone || null, payload: b, command: b.command || 'broadcast', custom_message: b.custom_message || '', target_phone: b.target_phone || null } }];"
+      },
+      "id": "tag_manual",
+      "name": "Tag Manager Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        1408
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "new_booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "new_booking"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "tally_form_submission",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "tally_form"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "r3",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "inbound_whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "inbound_wa"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "r4",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "pre_visit_reminder_cron",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pre_visit"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "r5",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "post_visit_followup_cron",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "post_visit"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "r6",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "day5_followup_cron",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "day5"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "r7",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "manager_alert",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "manager"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "router_sw",
+      "name": "Router Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        752,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $json;\nconst p = d.payload || d;\nconst norm = (ph) => {\n  if (!ph) return null;\n  let s = String(ph).replace(/\\D/g, '');\n  if (s.startsWith('20')) return s;\n  if (s.length === 10) return '20' + s;\n  if (s.length === 11 && s.startsWith('0')) return '20' + s.slice(1);\n  return s;\n};\nconst phone = norm(p.patient_phone || d.phone);\nif (!phone || phone.length < 10) return [{ json: { skip: true, reason: 'invalid_phone' } }];\nconst hour = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo', hour: 'numeric', hour12: false }));\nif (hour >= 23 || hour < 8) return [{ json: { skip: true, reason: 'outside_hours' } }];\nconst patientName = (p.patient_name || 'مريض').trim();\nconst doctorName = (p.doctor_name || 'الدكتور').trim();\nconst appointmentDate = p.appointment_date || '';\nconst appointmentTime = p.appointment_time || '';\nconst tallyUrl = p.tally_form_url || '{{ $env.INTAKE_FORM_URL }}';\nconst message = 'أهلاً ' + patientName + '! 😊\\n\\n✅ تم تأكيد موعدك مع ' + doctorName + '\\n📅 ' + appointmentDate + ' الساعة ' + appointmentTime + '\\n\\nعشان نوفر وقتك ونقدملك أحسن خدمة، ممكن تملي بياناتك الطبية قبل ما تيجي؟\\n\\n📋 الاستمارة هنا (3 دقايق):\\n' + tallyUrl + '\\n\\nدا هيخلي الدكتور مستعد ليك تماماً 🙏';\nreturn [{ json: { phone, patientName, doctorName, appointmentDate, appointmentTime, tallyUrl, message, skip: false, safeName: patientName.replace(/'/g, \"''\"), safeDr: doctorName.replace(/'/g, \"''\") } }];"
+      },
+      "id": "ba_extract",
+      "name": "A — Extract Booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a1",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ba_skip_check",
+      "name": "A — Skip Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        208
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ba_skip_noop",
+      "name": "A — Skip Invalid",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT id FROM patient_intake WHERE patient_phone = '{{ $json.phone }}' AND appointment_date = '{{ $json.appointmentDate }}'::date ORDER BY created_at DESC LIMIT 1) as existing_id, (SELECT form_submitted FROM patient_intake WHERE patient_phone = '{{ $json.phone }}' AND appointment_date = '{{ $json.appointmentDate }}'::date ORDER BY created_at DESC LIMIT 1) as form_submitted",
+        "options": {}
+      },
+      "id": "ba_pg_check",
+      "name": "A — Check Record Exists",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1552,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ext = $('A — Extract Booking').first().json;\nconst pg = $input.first().json || {};\nreturn [{ json: { ...ext, existing_id: pg.existing_id || null, form_submitted: pg.form_submitted === true } }];"
+      },
+      "id": "ba_merge",
+      "name": "A — Merge Booking Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a2",
+              "leftValue": "={{ $json.form_submitted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ba_if_form",
+      "name": "A — Already Submitted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.phone, text: 'شكراً! ✅ لقد استلمنا بياناتك الطبية بالفعل. نتطلع نشوفك في موعدك 😊', delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "ba_wa_rcvd",
+      "name": "A — Send Already Received WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2320,
+        208
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.phone, text: $json.message, delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "ba_wa_form",
+      "name": "A — Send Form Link WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2320,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO patient_intake (patient_phone, patient_name, doctor_name, appointment_date, appointment_time, form_link_sent_at) VALUES ('{{ $json.phone }}', '{{ $json.safeName }}', '{{ $json.safeDr }}', '{{ $json.appointmentDate }}'::date, '{{ $json.appointmentTime }}', NOW()) ON CONFLICT DO NOTHING",
+        "options": {}
+      },
+      "id": "ba_pg_save",
+      "name": "A — Save Booking",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2592,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO automation_logs (timestamp, phone, event_type, workflow_used, result, error_message) VALUES (NOW(), '{{ $json.phone }}', 'new_booking', 'MASTER_ROUTER_A', 'success', '')",
+        "options": {}
+      },
+      "id": "ba_log",
+      "name": "A — Log Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2848,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $json;\nconst body = d.payload || d;\nconst fields = (body.data && body.data.fields) ? body.data.fields : (body.fields ? body.fields : []);\nconst responseId = (body.data && body.data.responseId) ? body.data.responseId : 'unknown';\nconst getVal = (label) => {\n  const f = fields.find(f => f.label && f.label.toLowerCase() === label.toLowerCase());\n  if (!f || f.value === null || f.value === undefined) return '';\n  if (Array.isArray(f.value)) return f.value.join(', ');\n  return String(f.value).trim();\n};\nconst rawPhone = getVal('Phone Number').replace(/\\D/g, '');\nconst phone = rawPhone.startsWith('20') ? rawPhone : '20' + rawPhone;\nconst patientName = getVal('Full Name') || 'مريض';\nconst dob = getVal('Date of Birth');\nconst gender = getVal('Gender');\nconst chiefComplaint = getVal('Chief Complaint');\nconst allergies = getVal('Known Allergies') || 'لا يوجد';\nconst medications = getVal('Current Medications') || 'لا يوجد';\nconst conditions = getVal('Chronic Conditions') || 'لا يوجد';\nconst dentalConcerns = getVal('Dental Concerns');\nconst lastVisit = getVal('Last Dental Visit');\nconst surgeries = getVal('Previous Dental Surgeries') || 'لا يوجد';\nconst insurance = getVal('Insurance Provider') || 'Self-pay';\nconst emergName = getVal('Emergency Contact Name');\nconst emergPhone = getVal('Emergency Contact Phone');\nconst xrayConsent = getVal('X-Ray Consent') === 'Yes';\nconst doctorName = getVal('Doctor Name') || 'الدكتور';\nif (!phone || phone.length < 10) return [{ json: { error: true, reason: 'missing_phone', phone: '', patientName: 'مريض', responseId } }];\nif (!chiefComplaint) return [{ json: { error: true, reason: 'missing_complaint', phone, patientName, responseId } }];\nconst safe = (s) => String(s || '').replace(/'/g, \"''\");\nreturn [{ json: { phone, patientName, dob, gender, chiefComplaint, allergies, medications, conditions, dentalConcerns, lastVisit, surgeries, insurance, emergName, emergPhone, xrayConsent, doctorName, responseId, error: false, safePhone: safe(phone), safeName: safe(patientName), safeDob: safe(dob), safeGender: safe(gender), safeComplaint: safe(chiefComplaint), safeAllergies: safe(allergies), safeMeds: safe(medications), safeConditions: safe(conditions), safeDentalConcerns: safe(dentalConcerns), safeLastVisit: safe(lastVisit), safeSurgeries: safe(surgeries), safeInsurance: safe(insurance), safeEmergName: safe(emergName), safeEmergPhone: safe(emergPhone), safeDr: safe(doctorName) } }];"
+      },
+      "id": "bb_extract",
+      "name": "B — Extract Tally Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "b1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bb_if_err",
+      "name": "B — Validation Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.phone || '20XXXXXXXXXX', text: 'عذراً، في مشكلة صغيرة في الاستمارة. ممكن تعيد التسجيل؟ 🙏', delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bb_wa_err",
+      "name": "B — Send Error WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1552,
+        512
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT id FROM patient_intake WHERE patient_phone = '{{ $json.phone }}' AND form_submitted = true AND form_submitted_at > NOW() - INTERVAL '24 hours' LIMIT 1) as duplicate_id",
+        "options": {}
+      },
+      "id": "bb_pg_dup",
+      "name": "B — Check Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1552,
+        720
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const extracted = $('B — Extract Tally Fields').first().json;\nconst pg = $input.first().json || {};\nreturn [{ json: { ...extracted, duplicate_id: pg.duplicate_id || null, is_duplicate: !!(pg.duplicate_id) } }];"
+      },
+      "id": "bb_merge",
+      "name": "B — Merge Dup Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "b2",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bb_if_dup",
+      "name": "B — Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.phone, text: 'شكراً! 😊 لقد استلمنا بياناتك بالفعل. لا حاجة تعبئة الاستمارة مرة ثانية. نتطلع نشوفك في موعدك!', delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bb_wa_dup",
+      "name": "B — Send Duplicate WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2320,
+        624
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst sp = 'You are an expert dental clinic intake analyst for an Egyptian dental clinic. Return ONLY valid JSON.\\n\\nMANDATORY RISK OVERRIDES:\\n1. ANY local anesthetic allergy (lidocaine, novocaine, articaine) → risk_level MUST be \"high\", score ≥70\\n2. Heart disease (any type) → risk_level MUST be \"high\", score ≥70\\n3. Uncontrolled hypertension or multiple antihypertensive meds → risk_level \"high\", score ≥65\\n4. Anticoagulants (warfarin, heparin, aspirin daily) + dental procedure → risk_level MUST be \"emergency\"\\n5. Active severe infection + uncontrolled diabetes → risk_level MUST be \"emergency\"\\n\\nRISK GUIDE:\\n- EMERGENCY (80-100): anticoagulants+invasive, uncontrolled diabetes+infection, heart valve+no prophylaxis\\n- HIGH (60-79): anesthetic allergy, heart disease, uncontrolled hypertension, blood disorders, latex allergy\\n- MEDIUM (30-59): controlled diabetes/hypertension, 2+ years no visit, 3+ medications, moderate anxiety\\n- LOW (0-29): healthy, no conditions, no allergies, recent visit\\n\\nReturn ONLY this JSON object:\\n{\"risk_level\":\"low|medium|high|emergency\",\"risk_score\":0,\"red_flags\":[],\"staff_note_ar\":\"\",\"staff_note_en\":\"\",\"latex_free_needed\":false,\"antibiotic_prophylaxis_needed\":false,\"xray_approved\":true,\"patient_message_ar\":\"warm arabic confirmation max 80 words with prep tip\",\"prep_instructions_ar\":\"\",\"recommended_priority\":\"routine|priority|urgent|emergency\"}\\n\\nPatient data: ' + JSON.stringify({name:d.patientName,dob:d.dob,gender:d.gender,complaint:d.chiefComplaint,allergies:d.allergies,meds:d.medications,conditions:d.conditions,dental:d.dentalConcerns,last_visit:d.lastVisit,surgeries:d.surgeries,xray:d.xrayConsent,doctor:d.doctorName});\nreturn [{ json: { ...d, groqPayload: { model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: sp }, { role: 'user', content: 'Analyze this patient intake and return the JSON risk assessment.' }], temperature: 0.1, max_tokens: 1024, response_format: { type: 'json_object' } } } }];"
+      },
+      "id": "bb_groq_build",
+      "name": "B — Build Groq Risk Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.groqPayload) }}",
+        "options": {}
+      },
+      "id": "bb_groq_http",
+      "name": "B — Call Groq AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2592,
+        832
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const groqRaw = $input.first().json;\nconst intakeData = $('B — Extract Tally Fields').first().json;\nlet analysis = {};\ntry { analysis = JSON.parse(groqRaw.choices[0].message.content); } catch(e) {\n  analysis = { risk_level: 'low', risk_score: 20, red_flags: [], staff_note_ar: 'مريض روتيني — لا ملاحظات خاصة', staff_note_en: 'Routine patient', latex_free_needed: false, antibiotic_prophylaxis_needed: false, xray_approved: intakeData.xrayConsent, patient_message_ar: 'شكراً ' + intakeData.patientName + '! ✅ استلمنا بياناتك. نتطلع نشوفك! 😊', prep_instructions_ar: 'يرجى تفريش أسنانك جيداً قبل الزيارة.', recommended_priority: 'routine' };\n}\nconst safe = (s) => String(s || '').replace(/'/g, \"''\");\nconst redFlagsStr = Array.isArray(analysis.red_flags) ? analysis.red_flags.join(', ') : (analysis.red_flags || '');\nreturn [{ json: { ...intakeData, riskLevel: analysis.risk_level || 'low', riskScore: analysis.risk_score || 0, redFlags: redFlagsStr, staffNoteAr: analysis.staff_note_ar || '', staffNoteEn: analysis.staff_note_en || '', latexFree: analysis.latex_free_needed || false, antibioticNeeded: analysis.antibiotic_prophylaxis_needed || false, xrayApproved: analysis.xray_approved || false, patientMessageAr: analysis.patient_message_ar || '', prepInstructions: analysis.prep_instructions_ar || '', priority: analysis.recommended_priority || 'routine', safeStaffNote: safe(analysis.staff_note_ar || ''), safeRedFlags: safe(redFlagsStr), safePrep: safe(analysis.prep_instructions_ar || '') } }];"
+      },
+      "id": "bb_groq_parse",
+      "name": "B — Parse Risk Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "rs1",
+                    "leftValue": "={{ $json.riskLevel }}",
+                    "rightValue": "emergency",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "emergency"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "rs2",
+                    "leftValue": "={{ $json.riskLevel }}",
+                    "rightValue": "high",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "high"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "bb_risk_sw",
+      "name": "B — Risk Level Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        3104,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: '20XXXXXXXXXX', text: '🚨 حالة طارئة — ' + $json.patientName + ' | ' + $json.phone + ' | خطر: ' + $json.riskScore + '/100 | ' + $json.redFlags, delay: 500 }) }}",
+        "options": {}
+      },
+      "id": "bb_wa_emerg",
+      "name": "B — Emergency Alert WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3360,
+        704
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: '20XXXXXXXXXX', text: '⚠️ مريض عالي الخطورة — ' + $json.patientName + ' | ' + $json.phone + ' | خطر: ' + $json.riskScore + '/100 | ' + $json.staffNoteAr, delay: 500 }) }}",
+        "options": {}
+      },
+      "id": "bb_wa_high",
+      "name": "B — High Alert WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3360,
+        848
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO patient_intake (patient_phone, patient_name, doctor_name, date_of_birth, gender, chief_complaint, allergies, current_medications, chronic_conditions, dental_concerns, last_dental_visit, previous_surgeries, insurance_provider, emergency_contact_name, emergency_contact_phone, xray_consent, risk_level, risk_score, red_flags, staff_note, prep_instructions, form_submitted, form_submitted_at, staff_alerted, tally_response_id) VALUES ('{{ $('B — Parse Risk Response').first().json.safePhone }}', '{{ $('B — Parse Risk Response').first().json.safeName }}', '{{ $('B — Parse Risk Response').first().json.safeDr }}', '{{ $('B — Parse Risk Response').first().json.safeDob }}', '{{ $('B — Parse Risk Response').first().json.safeGender }}', '{{ $('B — Parse Risk Response').first().json.safeComplaint }}', '{{ $('B — Parse Risk Response').first().json.safeAllergies }}', '{{ $('B — Parse Risk Response').first().json.safeMeds }}', '{{ $('B — Parse Risk Response').first().json.safeConditions }}', '{{ $('B — Parse Risk Response').first().json.safeDentalConcerns }}', '{{ $('B — Parse Risk Response').first().json.safeLastVisit }}', '{{ $('B — Parse Risk Response').first().json.safeSurgeries }}', '{{ $('B — Parse Risk Response').first().json.safeInsurance }}', '{{ $('B — Parse Risk Response').first().json.safeEmergName }}', '{{ $('B — Parse Risk Response').first().json.safeEmergPhone }}', {{ $('B — Parse Risk Response').first().json.xrayConsent }}, '{{ $('B — Parse Risk Response').first().json.riskLevel }}', {{ $('B — Parse Risk Response').first().json.riskScore }}, '{{ $('B — Parse Risk Response').first().json.safeRedFlags }}', '{{ $('B — Parse Risk Response').first().json.safeStaffNote }}', '{{ $('B — Parse Risk Response').first().json.safePrep }}', true, NOW(), {{ $('B — Parse Risk Response').first().json.riskLevel === 'high' || $('B — Parse Risk Response').first().json.riskLevel === 'emergency' }}, '{{ $('B — Parse Risk Response').first().json.responseId }}')",
+        "options": {}
+      },
+      "id": "bb_pg_save",
+      "name": "B — Save to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3632,
+        832
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v66CBv17iafAL_0c7cUt7gi0um2JOacHnI2ZwRg2YXU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Patient Intake",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ new Date().toISOString() }}",
+            "Patient Name": "={{ $('B — Parse Risk Response').first().json.patientName }}",
+            "Phone": "={{ $('B — Parse Risk Response').first().json.phone }}",
+            "Date of Birth": "={{ $('B — Parse Risk Response').first().json.dob }}",
+            "Gender": "={{ $('B — Parse Risk Response').first().json.gender }}",
+            "Chief Complaint": "={{ $('B — Parse Risk Response').first().json.chiefComplaint }}",
+            "Allergies": "={{ $('B — Parse Risk Response').first().json.allergies }}",
+            "Medications": "={{ $('B — Parse Risk Response').first().json.medications }}",
+            "Chronic Conditions": "={{ $('B — Parse Risk Response').first().json.conditions }}",
+            "Doctor": "={{ $('B — Parse Risk Response').first().json.doctorName }}",
+            "Risk Level": "={{ $('B — Parse Risk Response').first().json.riskLevel }}",
+            "Risk Score": "={{ $('B — Parse Risk Response').first().json.riskScore }}",
+            "Red Flags": "={{ $('B — Parse Risk Response').first().json.redFlags }}",
+            "Staff Note": "={{ $('B — Parse Risk Response').first().json.staffNoteAr }}",
+            "Prep Instructions": "={{ $('B — Parse Risk Response').first().json.prepInstructions }}",
+            "Form Submitted": "TRUE"
+          }
+        },
+        "options": {}
+      },
+      "id": "bb_gs_save",
+      "name": "B — Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3888,
+        832
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $('B — Parse Risk Response').first().json.phone, text: $('B — Parse Risk Response').first().json.patientMessageAr, delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bb_wa_confirm",
+      "name": "B — Send Patient Confirmation WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4144,
+        832
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO automation_logs (timestamp, phone, event_type, workflow_used, result, error_message) VALUES (NOW(), '{{ $('B — Parse Risk Response').first().json.safePhone }}', 'tally_form_submission', 'MASTER_ROUTER_B', '{{ $('B — Parse Risk Response').first().json.riskLevel }}', '')",
+        "options": {}
+      },
+      "id": "bb_log",
+      "name": "B — Log Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4400,
+        832
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $json;\nconst body = d.payload || d;\nconst data = body.data || {};\nconst key = data.key || {};\nconst msgObj = data.message || {};\nconst phone = d.phone || (key.remoteJid || '').replace('@s.whatsapp.net', '').replace('@g.us', '');\nconst rawMsg = msgObj.conversation || (msgObj.extendedTextMessage && msgObj.extendedTextMessage.text) || (msgObj.imageMessage && msgObj.imageMessage.caption) || (msgObj.buttonsResponseMessage && msgObj.buttonsResponseMessage.selectedDisplayText) || (msgObj.listResponseMessage && msgObj.listResponseMessage.title) || '';\nconst fromMe = key.fromMe === true;\nconst pushName = data.pushName || '';\nconst INSTANCE_MAP = { '{{ EVOLUTION_INSTANCE }}': 'clinic_001', 'whatsapp-bot': 'clinic_001' };\nconst instanceName = body.instance || body.instanceName || '{{ EVOLUTION_INSTANCE }}';\nconst clinic_id = INSTANCE_MAP[instanceName] || 'clinic_001';\nif (fromMe || !rawMsg) return [];\nreturn [{ json: { phone, message: rawMsg, pushName, fromMe: false, clinic_id, instanceName } }];"
+      },
+      "id": "bc_extract",
+      "name": "C — Extract WA Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages?patient_phone=eq.{{$json.phone}}&clinic_id=eq.{{$json.clinic_id}}&order=created_at.desc&limit=20",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bc_pg_mem",
+      "name": "C — Load Memory Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1280,
+        1232
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ext = $('C — Extract WA Message').first().json;\nconst historyItems = $input.all();\nconst phone = ext.phone;\nconst message = ext.message;\nconst pushName = ext.pushName;\nconst clinic_id = ext.clinic_id || 'clinic_001';\nconst allMessages = historyItems.map(item => item.json).filter(m => m && m.message_text);\nlet history = allMessages.slice().reverse().map(m => ({ role: m.direction === 'inbound' ? 'user' : 'model', parts: [{ text: m.message_text || '' }] }));\nwhile (history.length > 0 && history[history.length - 1].role === 'model') history.pop();\nconst sys = 'You are a warm, empathetic AI assistant for a dental clinic. Multilingual: Arabic, English, Arabizi, French. Never robotic.\\nPatient: ' + (pushName || 'Patient') + '\\n\\nRULES:\\n- Match patient language exactly\\n- Anxiety: validate feelings, then reassure about painless modern dentistry\\n- Price questions: doctor estimates after exam; never quote prices\\n- Complaints: empathy first, set escalate=true\\n- Compliment after first reply: set send_review_link=true\\n- Opt-out request: set next_action=close_session\\n\\nReturn ONLY valid JSON with these fields: reply_message (string), sentiment (positive/negative/neutral), sentiment_score (float 0-1), intent (booking/reschedule/pain/price_inquiry/complaint/review/anxiety/form_help/compliment/opt_out/other), escalate (boolean), escalate_reason (string), send_review_link (boolean), detected_language (arabic/english/arabizi/french/mixed), confidence (float 0-1), next_action (wait_reply/escalate/close_session/send_form_link).';\nconst contents = [...history, { role: 'user', parts: [{ text: message }] }];\nconst geminiPayload = { system_instruction: { parts: [{ text: sys }] }, contents, generationConfig: { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: 1024 } };\nconst sid = phone + '_' + new Date().toISOString().split('T')[0];\nreturn [{ json: { phone, message, pushName, clinic_id, sessionId: sid, geminiPayload } }];"
+      },
+      "id": "bc_groq_build",
+      "name": "C — Build Groq Chat Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.geminiPayload) }}",
+        "options": {}
+      },
+      "id": "bc_groq_http",
+      "name": "C — Groq AI Chat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1808,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('C — Build Groq Chat Payload').first().json;\nconst gr = $input.first().json;\nlet ai = {};\ntry {\n  const text = gr.candidates[0].content.parts[0].text;\n  ai = typeof text === 'string' ? JSON.parse(text) : text;\n} catch(e) {\n  ai = { reply_message: 'نرد عليك خلال دقايق، شكراً لصبرك 🙏', sentiment: 'neutral', sentiment_score: 0.5, intent: 'other', confidence: 0.3, escalate: false, escalate_reason: '', send_review_link: false, detected_language: 'arabic', next_action: 'wait_reply' };\n}\nreturn [{ json: { ...prev, ...ai, phone: prev.phone, message: prev.message, clinic_id: prev.clinic_id, sessionId: prev.sessionId } }];"
+      },
+      "id": "bc_groq_parse",
+      "name": "C — Parse Chat Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({patient_phone: $('C — Extract WA Message').first().json.phone, clinic_id: $('C — Extract WA Message').first().json.clinic_id, message_text: $('C — Extract WA Message').first().json.message, direction: 'inbound', source: 'whatsapp'}) }}",
+        "options": {}
+      },
+      "id": "bc_pg_user",
+      "name": "C — Save User Turn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2320,
+        1232
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({patient_phone: $('C — Parse Chat Response').first().json.phone, clinic_id: $('C — Parse Chat Response').first().json.clinic_id, message_text: $('C — Parse Chat Response').first().json.reply_message, direction: 'outbound', source: 'whatsapp'}) }}",
+        "options": {}
+      },
+      "id": "bc_pg_ai",
+      "name": "C — Save AI Turn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2592,
+        1232
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE patient_followup SET sentiment = '{{ $json.sentiment }}', sentiment_score = {{ $json.sentiment_score || 0.5 }}, patient_replied = true, last_reply = '{{ $json.safeMsg }}', last_intent = '{{ $json.intent }}', review_link_sent = CASE WHEN {{ $json.send_review_link === true }} THEN true ELSE review_link_sent END, escalated_to_manager = CASE WHEN {{ $json.escalate === true }} THEN true ELSE escalated_to_manager END, escalation_reason = CASE WHEN '{{ $json.safeEscReason }}' != '' THEN '{{ $json.safeEscReason }}' ELSE escalation_reason END, updated_at = NOW() WHERE patient_phone = '{{ $json.phone }}'",
+        "options": {}
+      },
+      "id": "bc_pg_update",
+      "name": "C — Update Patient Record",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        1232
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO clinic_operations_log (patient_phone, event_type, event_data, sentiment_score) VALUES ('{{ $json.phone }}', 'whatsapp_reply', '{\"intent\":\"{{ $json.intent }}\",\"sentiment\":\"{{ $json.sentiment }}\",\"escalate\":{{ $json.escalate === true }}}'::jsonb, {{ $json.sentiment_score || 0.5 }})",
+        "options": {}
+      },
+      "id": "bc_pg_oplog",
+      "name": "C — Log Operations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        3104,
+        1232
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $('C — Extract WA Message').first().json.phone.replace('+', ''), text: $('C — Parse Chat Response').first().json.reply_message }) }}",
+        "options": {}
+      },
+      "id": "bc_wa_reply",
+      "name": "C — Send Patient Reply WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3360,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "ce1",
+                    "leftValue": "={{ $json.escalate }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ESCALATE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "ce2",
+                    "leftValue": "={{ $json.send_review_link }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REVIEW"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "ce3",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "rebook",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REBOOK"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "bc_sw_extra",
+      "name": "C — Route Extra Actions",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        3632,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"number\": $json.managerPhone, \"text\": '🚨 تنبيه — شكوى عاجلة\\n\\n👤 المريض: ' + $json.patientName + '\\n📱 ' + $json.phone + '\\n👨‍⚕️ ' + $json.doctorName + '\\n😟 مستوى السخط: ' + ($json.sentiment_score || 0) + '/1.0\\n\\n📝 الشكوى: ' + ($json.escalate_reason || 'تفاصيل غير محددة') + '\\n\\nيرجى المتابعة خلال ساعتين ✅' }) }}",
+        "options": {}
+      },
+      "id": "bc_wa_mgr",
+      "name": "C — Notify Manager WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3888,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"number\": $('C — Extract WA Message').first().json.phone.replace('+', ''), \"text\": 'يسعدنا إنك راضي! 🌟\\n\\nتقييمك على Google هيساعد حد تاني يلاقينا:\\n👇\\n' + $json.googleMapsLink + '\\n\\nشكراً من القلب 💙' }) }}",
+        "options": {}
+      },
+      "id": "bc_wa_review",
+      "name": "C — Send Review Link WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3888,
+        1264
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bc_rebook_noop",
+      "name": "C — Rebook Noted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3888,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO automation_logs (timestamp, phone, event_type, workflow_used, result, error_message) VALUES (NOW(), '{{ $json.phone }}', 'inbound_whatsapp', 'MASTER_ROUTER_C', '{{ $json.intent }}', '')",
+        "options": {}
+      },
+      "id": "bc_log",
+      "name": "C — Log Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3888,
+        1504
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT patient_phone, patient_name, doctor_name, appointment_date, appointment_time, form_submitted, prep_instructions FROM patient_intake WHERE appointment_date = CURRENT_DATE + INTERVAL '1 day' AND reminder_sent IS NULL AND (opted_out IS NULL OR opted_out = false) ORDER BY appointment_time ASC",
+        "options": {}
+      },
+      "id": "bd_pg_tmrw",
+      "name": "D — Get Tomorrow Patients",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1024,
+        1920
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "bd_split",
+      "name": "D — Split Patients",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1280,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d1",
+              "leftValue": "={{ $json.form_submitted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bd_if_form",
+      "name": "D — Form Submitted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst prep = d.prep_instructions || 'يرجى تفريش أسنانك جيداً قبل الزيارة وإحضار أي أشعة أو تقارير سابقة.';\nconst message = 'أهلاً ' + d.patient_name + '! 👋\\n\\nتذكير بموعدك بكرة مع ' + d.doctor_name + '\\nالساعة ' + d.appointment_time + ' ⏰\\n\\n' + prep + '\\n\\nنتطلع نشوفك! 😊';\nreturn [{ json: { ...d, reminderMessage: message } }];"
+      },
+      "id": "bd_code_prep",
+      "name": "D — Build Prep Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst message = 'أهلاً ' + d.patient_name + '! 👋\\n\\nموعدك بكرة مع ' + d.doctor_name + ' ⏰\\n\\nلسه ما ملأتش الاستمارة الطبية — دي هتوفرلك وقت كتير في العيادة:\\n📋 {{ $env.INTAKE_FORM_URL }}\\n\\nلو عندك أي سؤال كلمنا هنا 💙';\nreturn [{ json: { ...d, reminderMessage: message } }];"
+      },
+      "id": "bd_code_form",
+      "name": "D — Build Form Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        2048
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.patient_phone, text: $json.reminderMessage, delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bd_wa_send",
+      "name": "D — Send Reminder WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2064,
+        1920
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE patient_intake SET reminder_sent = NOW(), updated_at = NOW() WHERE patient_phone = '{{ $json.patient_phone }}' AND appointment_date = '{{ $json.appointment_date }}'::date AND reminder_sent IS NULL",
+        "options": {}
+      },
+      "id": "bd_pg_mark",
+      "name": "D — Mark Reminder Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2320,
+        1920
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cp.phone, cp.full_name, cp.doctor_name, cp.visit_date, cp.visit_type, cp.clinic_name, cp.google_maps_link, cp.manager_phone FROM clinic_patients cp LEFT JOIN patient_followup pf ON cp.phone = pf.patient_phone WHERE cp.visit_date BETWEEN NOW() - INTERVAL '3 hours' AND NOW() - INTERVAL '1 hour' AND (pf.id IS NULL OR pf.follow_up_sent_at IS NULL) ORDER BY cp.visit_date ASC LIMIT 50",
+        "options": {}
+      },
+      "id": "be_pg_find",
+      "name": "E — Find Post-Visit Patients",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        2432
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all()\n  .filter(item => item.json && item.json.phone)\n  .map(item => {\n  const p = item.json;\n  const name = p.full_name || 'مريض';\n  const doctor = p.doctor_name || 'الدكتور';\n  const message = 'أهلاً ' + name + ' 😊\\n\\nنتمنى إن زيارتك النهاردة لـ ' + doctor + ' كانت مريحة.\\n\\nإيه رأيك في التجربة؟ صراحتك بتساعدنا نتحسن ليك وللناس التانية 🙏';\n  return { json: { ...p, message, safeName: name.replace(/'/g, \"''\"), safeDr: doctor.replace(/'/g, \"''\"), safePhone: (p.phone||'').replace(/'/g, \"''\"), safeClinic: (p.clinic_name||'العيادة').replace(/'/g, \"''\"), safeGLink: (p.google_maps_link||'').replace(/'/g, \"''\"), safeMgr: (p.manager_phone||'20XXXXXXXXXX').replace(/'/g, \"''\") } };\n});"
+      },
+      "id": "be_code_msg",
+      "name": "E — Build Followup Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        2432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.phone, text: $json.message, delay: 1200 }) }}",
+        "options": {}
+      },
+      "id": "be_wa_send",
+      "name": "E — Send Followup WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1552,
+        2432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO patient_followup (patient_phone, patient_name, doctor_name, visit_date, follow_up_sent_at, clinic_name, google_maps_link, manager_phone) SELECT '{{ $json.safePhone }}', '{{ $json.safeName }}', '{{ $json.safeDr }}', '{{ $json.visit_date }}'::timestamp, NOW(), '{{ $json.safeClinic }}', '{{ $json.safeGLink }}', '{{ $json.safeMgr }}' WHERE NOT EXISTS (SELECT 1 FROM patient_followup WHERE patient_phone = '{{ $json.safePhone }}' AND follow_up_sent_at IS NOT NULL)",
+        "options": {}
+      },
+      "id": "be_pg_log",
+      "name": "E — Log Followup Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        2432
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT patient_phone, patient_name, doctor_name, visit_type, clinic_name, manager_phone FROM patient_followup WHERE visit_date BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '5 days' AND follow_up_day5_sent IS NULL AND (opted_out IS NULL OR opted_out = false) ORDER BY visit_date ASC LIMIT 100",
+        "options": {}
+      },
+      "id": "bf_pg_find",
+      "name": "F — Find Day 5-7 Patients",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        2832
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all()\n  .filter(item => item.json && item.json.patient_phone)\n  .map(item => {\n  const p = item.json;\n  const sysMsg = 'You are a clinic care assistant. Write a SHORT warm Arabic follow-up care message (max 100 words) for a patient who had ' + (p.visit_type || 'general') + ' care 5-7 days ago. Include specific care tips. Patient: ' + (p.patient_name || 'Patient') + ', Doctor: ' + (p.doctor_name || 'Doctor') + '. End with invitation to rebook at ' + (p.manager_phone || '+20XXXXXXXXXX') + '. Return ONLY the Arabic message text.';\n  return { json: { ...p, groqPayload: { model: 'llama-3.3-70b-versatile', messages: [{ role: 'system', content: sysMsg }, { role: 'user', content: 'Generate the Arabic care message.' }], temperature: 0.5, max_tokens: 400 } } };\n});"
+      },
+      "id": "bf_groq_build",
+      "name": "F — Build Groq Care Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        2832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.groqPayload) }}",
+        "options": {}
+      },
+      "id": "bf_groq_http",
+      "name": "F — Generate Care Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1552,
+        2832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const gr = item.json;\n  const buildData = $('F — Build Groq Care Payload').all()[idx].json;\n  let careText = '';\n  try { careText = gr.choices[0].message.content || ''; } catch(e) {}\n  if (!careText) careText = 'تذكر دائماً اتباع تعليمات طبيبك والراحة الكافية للتعافي السريع.';\n  const intro = 'أهلاً ' + buildData.patient_name + '! 😊 نفتكرك بعد زيارتك مع ' + buildData.doctor_name + '. ';\n  const outro = ' للأسئلة أو الحجز: ' + buildData.manager_phone + ' 💙';\n  const fullMsg = intro + careText + outro;\n  const safePhone = (buildData.patient_phone || '').replace(/'/g, \"''\");\n  return { json: { ...buildData, careText, fullMsg, safePhone } };\n});"
+      },
+      "id": "bf_code_parse",
+      "name": "F — Parse Care Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        2832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.patient_phone, text: $json.fullMsg }) }}",
+        "options": {}
+      },
+      "id": "bf_wa_send",
+      "name": "F — Send Care WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2064,
+        2832
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE patient_followup SET follow_up_day5_sent = NOW() WHERE patient_phone = '{{ $json.safePhone }}'",
+        "options": {}
+      },
+      "id": "bf_pg_mark",
+      "name": "F — Mark Day5 Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        2832
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $json;\nconst payload = d.payload || d;\nreturn [{ json: { command: payload.command || d.command || 'broadcast', custom_message: payload.custom_message || d.custom_message || 'رسالة من الإدارة', target_phone: payload.target_phone || d.target_phone || null, broadcast_message: payload.broadcast_message || d.broadcast_message || '', vip_phone: payload.vip_phone || null, missed_phone: payload.missed_phone || null, timestamp: new Date().toISOString() } }];"
+      },
+      "id": "bg_parse",
+      "name": "G — Parse Manager Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        3232
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "g1",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "broadcast",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "broadcast"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "g2",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "custom_reminder",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "custom_reminder"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "g3",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "vip_followup",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "vip"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "g4",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "missed_appointment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "missed"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "bg_sw",
+      "name": "G — Manager Action Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1280,
+        3232
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.target_phone || '20XXXXXXXXXX', text: '📢 رسالة من الإدارة:\\n' + $json.broadcast_message, delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bg_wa_broadcast",
+      "name": "G — Send Broadcast WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1552,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.target_phone, text: $json.custom_message, delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bg_wa_custom",
+      "name": "G — Send Custom Reminder WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1552,
+        3232
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.vip_phone || $json.target_phone, text: '✨ أهلاً بمريضنا المميز! نريد التأكد أن كل شيء على ما يرام بعد زيارتك. هل تحتاج أي شيء؟ 💙', delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bg_wa_vip",
+      "name": "G — VIP Followup WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1552,
+        3344
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.missed_phone || $json.target_phone, text: 'أهلاً! 💙 لاحظنا إنك ما حضرتش موعدك النهارده. كلنا نفهم إن الأوقات بتتغير — يسعدنا نحجزلك وقت تاني يناسبك. تواصل معانا متى تحب 😊', delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bg_wa_missed",
+      "name": "G — Missed Appointment WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1552,
+        3472
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO automation_logs (timestamp, phone, event_type, workflow_used, result, error_message) VALUES (NOW(), '{{ $json.target_phone || 'manager' }}', 'manager_alert', 'MASTER_ROUTER_G', '{{ $json.command }}', '')",
+        "options": {}
+      },
+      "id": "bg_log",
+      "name": "G — Log Manager Action",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1808,
+        3232
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO automation_logs (timestamp, phone, event_type, workflow_used, result, error_message) VALUES (NOW(), '{{ $json.phone || 'unknown' }}', 'fallback_unknown', 'MASTER_ROUTER_H', 'unhandled', '{{ JSON.stringify($json).substring(0, 500) }}')",
+        "options": {}
+      },
+      "id": "bh_pg_log",
+      "name": "H — Log Unknown Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1024,
+        3632
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: '20XXXXXXXXXX', text: '⚠️ Master Router: Unknown event type received\\nSource: ' + $json.source + '\\nTimestamp: ' + $json.timestamp, delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "bh_wa_admin",
+      "name": "H — Notify Admin WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1280,
+        3632
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/patients?on_conflict=phone,clinic_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SUPABASE_PUBLISHABLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({phone: $json.phone, name: $json.pushName || 'Unknown', clinic_id: $json.clinic_id}) }}",
+        "options": {}
+      },
+      "id": "5ba4fe94-e467-45c9-acf3-4624d724dde7",
+      "name": "C — Upsert Patient",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1024,
+        1440
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook — Master Router": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 OK": {
+      "main": [
+        [
+          {
+            "node": "Normalize Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cron 9AM — Pre-Visit": {
+      "main": [
+        [
+          {
+            "node": "Tag Pre-Visit Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cron 9AM — Day 5-7": {
+      "main": [
+        [
+          {
+            "node": "Tag Day 5-7 Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cron Every 30min — Post-Visit": {
+      "main": [
+        [
+          {
+            "node": "Tag Post-Visit Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger — Manager Alert": {
+      "main": [
+        [
+          {
+            "node": "Tag Manager Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Webhook": {
+      "main": [
+        [
+          {
+            "node": "Router Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Pre-Visit Reminder": {
+      "main": [
+        [
+          {
+            "node": "Router Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Day 5-7 Followup": {
+      "main": [
+        [
+          {
+            "node": "Router Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Post-Visit Followup": {
+      "main": [
+        [
+          {
+            "node": "Router Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Manager Alert": {
+      "main": [
+        [
+          {
+            "node": "Router Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Switch": {
+      "main": [
+        [
+          {
+            "node": "A — Extract Booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B — Extract Tally Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "C — Extract WA Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "D — Get Tomorrow Patients",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "E — Find Post-Visit Patients",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "F — Find Day 5-7 Patients",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "G — Parse Manager Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "H — Log Unknown Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A — Extract Booking": {
+      "main": [
+        [
+          {
+            "node": "A — Skip Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A — Skip Check": {
+      "main": [
+        [
+          {
+            "node": "A — Skip Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "A — Check Record Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A — Check Record Exists": {
+      "main": [
+        [
+          {
+            "node": "A — Merge Booking Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A — Merge Booking Data": {
+      "main": [
+        [
+          {
+            "node": "A — Already Submitted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A — Already Submitted?": {
+      "main": [
+        [
+          {
+            "node": "A — Send Already Received WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "A — Send Form Link WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A — Send Form Link WA": {
+      "main": [
+        [
+          {
+            "node": "A — Save Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A — Save Booking": {
+      "main": [
+        [
+          {
+            "node": "A — Log Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Extract Tally Fields": {
+      "main": [
+        [
+          {
+            "node": "B — Validation Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Validation Error?": {
+      "main": [
+        [
+          {
+            "node": "B — Send Error WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B — Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "B — Merge Dup Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Merge Dup Data": {
+      "main": [
+        [
+          {
+            "node": "B — Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Is Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "B — Send Duplicate WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B — Build Groq Risk Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Build Groq Risk Payload": {
+      "main": [
+        [
+          {
+            "node": "B — Call Groq AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Call Groq AI": {
+      "main": [
+        [
+          {
+            "node": "B — Parse Risk Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Parse Risk Response": {
+      "main": [
+        [
+          {
+            "node": "B — Risk Level Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Risk Level Router": {
+      "main": [
+        [
+          {
+            "node": "B — Emergency Alert WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B — High Alert WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B — Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Emergency Alert WA": {
+      "main": [
+        [
+          {
+            "node": "B — Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — High Alert WA": {
+      "main": [
+        [
+          {
+            "node": "B — Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Save to PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "B — Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "B — Send Patient Confirmation WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B — Send Patient Confirmation WA": {
+      "main": [
+        [
+          {
+            "node": "B — Log Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Extract WA Message": {
+      "main": [
+        [
+          {
+            "node": "C — Load Memory Profile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "C — Upsert Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Load Memory Profile": {
+      "main": [
+        [
+          {
+            "node": "C — Build Groq Chat Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Build Groq Chat Payload": {
+      "main": [
+        [
+          {
+            "node": "C — Groq AI Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Groq AI Chat": {
+      "main": [
+        [
+          {
+            "node": "C — Parse Chat Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Parse Chat Response": {
+      "main": [
+        [
+          {
+            "node": "C — Save User Turn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Save User Turn": {
+      "main": [
+        [
+          {
+            "node": "C — Save AI Turn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Save AI Turn": {
+      "main": [
+        [
+          {
+            "node": "C — Update Patient Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Update Patient Record": {
+      "main": [
+        [
+          {
+            "node": "C — Log Operations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Log Operations": {
+      "main": [
+        [
+          {
+            "node": "C — Send Patient Reply WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Send Patient Reply WA": {
+      "main": [
+        [
+          {
+            "node": "C — Route Extra Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C — Route Extra Actions": {
+      "main": [
+        [
+          {
+            "node": "C — Notify Manager WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "C — Send Review Link WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "C — Rebook Noted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "C — Log Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D — Get Tomorrow Patients": {
+      "main": [
+        [
+          {
+            "node": "D — Split Patients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D — Split Patients": {
+      "main": [
+        [
+          {
+            "node": "D — Form Submitted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D — Form Submitted?": {
+      "main": [
+        [
+          {
+            "node": "D — Build Prep Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "D — Build Form Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D — Build Prep Reminder": {
+      "main": [
+        [
+          {
+            "node": "D — Send Reminder WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D — Build Form Reminder": {
+      "main": [
+        [
+          {
+            "node": "D — Send Reminder WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D — Send Reminder WA": {
+      "main": [
+        [
+          {
+            "node": "D — Mark Reminder Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D — Mark Reminder Sent": {
+      "main": [
+        [
+          {
+            "node": "D — Split Patients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E — Find Post-Visit Patients": {
+      "main": [
+        [
+          {
+            "node": "E — Build Followup Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E — Build Followup Message": {
+      "main": [
+        [
+          {
+            "node": "E — Send Followup WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E — Send Followup WA": {
+      "main": [
+        [
+          {
+            "node": "E — Log Followup Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "F — Find Day 5-7 Patients": {
+      "main": [
+        [
+          {
+            "node": "F — Build Groq Care Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "F — Build Groq Care Payload": {
+      "main": [
+        [
+          {
+            "node": "F — Generate Care Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "F — Generate Care Message": {
+      "main": [
+        [
+          {
+            "node": "F — Parse Care Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "F — Parse Care Message": {
+      "main": [
+        [
+          {
+            "node": "F — Send Care WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "F — Send Care WA": {
+      "main": [
+        [
+          {
+            "node": "F — Mark Day5 Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "G — Parse Manager Command": {
+      "main": [
+        [
+          {
+            "node": "G — Manager Action Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "G — Manager Action Switch": {
+      "main": [
+        [
+          {
+            "node": "G — Send Broadcast WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "G — Send Custom Reminder WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "G — VIP Followup WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "G — Missed Appointment WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "G — Log Manager Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "G — Send Broadcast WA": {
+      "main": [
+        [
+          {
+            "node": "G — Log Manager Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "G — Send Custom Reminder WA": {
+      "main": [
+        [
+          {
+            "node": "G — Log Manager Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "G — VIP Followup WA": {
+      "main": [
+        [
+          {
+            "node": "G — Log Manager Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "G — Missed Appointment WA": {
+      "main": [
+        [
+          {
+            "node": "G — Log Manager Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H — Log Unknown Event": {
+      "main": [
+        [
+          {
+            "node": "H — Notify Admin WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Africa/Cairo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}

@@ -1,0 +1,745 @@
+{
+  "name": "Dental Intake — Process Form Submission",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dental-intake-form",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh2",
+      "name": "Tally Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"received\" }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "rsp2",
+      "name": "Respond 200 Received",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        464,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst fields = (body.data && body.data.fields) ? body.data.fields : (body.fields ? body.fields : []);\nconst responseId = (body.data && body.data.responseId) ? body.data.responseId : 'unknown';\n\nconst getVal = (label) => {\n  const f = fields.find(f => f.label && f.label.toLowerCase() === label.toLowerCase());\n  if (!f || f.value === null || f.value === undefined) return '';\n  if (Array.isArray(f.value)) return f.value.join(', ');\n  return String(f.value).trim();\n};\n\nconst rawPhone = getVal('Phone Number').replace(/\\D/g, '');\nconst phone = rawPhone.startsWith('20') ? rawPhone : '20' + rawPhone;\nconst patientName = getVal('Full Name') || 'مريض';\nconst dob = getVal('Date of Birth');\nconst gender = getVal('Gender');\nconst chiefComplaint = getVal('Chief Complaint');\nconst allergies = getVal('Known Allergies') || 'لا يوجد';\nconst medications = getVal('Current Medications') || 'لا يوجد';\nconst conditions = getVal('Chronic Conditions') || 'لا يوجد';\nconst dentalConcerns = getVal('Dental Concerns');\nconst lastVisit = getVal('Last Dental Visit');\nconst surgeries = getVal('Previous Dental Surgeries') || 'لا يوجد';\nconst insurance = getVal('Insurance Provider') || 'Self-pay';\nconst emergName = getVal('Emergency Contact Name');\nconst emergPhone = getVal('Emergency Contact Phone');\nconst xrayConsent = getVal('X-Ray Consent') === 'Yes';\nconst doctorName = getVal('Doctor Name') || 'الدكتور';\n\nif (!phone || phone.length < 10) {\n  return [{ json: { error: true, reason: 'missing_phone', phone: '', patientName: 'مريض', responseId } }];\n}\nif (!chiefComplaint) {\n  return [{ json: { error: true, reason: 'missing_complaint', phone, patientName, responseId } }];\n}\n\nconst safe = (s) => String(s || '').replace(/'/g, \"''\");\n\nreturn [{ json: {\n  phone, patientName, dob, gender, chiefComplaint, allergies, medications,\n  conditions, dentalConcerns, lastVisit, surgeries, insurance,\n  emergName, emergPhone, xrayConsent, doctorName, responseId, error: false,\n  safePhone: safe(phone), safeName: safe(patientName), safeDob: safe(dob),\n  safeGender: safe(gender), safeComplaint: safe(chiefComplaint),\n  safeAllergies: safe(allergies), safeMeds: safe(medications),\n  safeConditions: safe(conditions), safeDentalConcerns: safe(dentalConcerns),\n  safeLastVisit: safe(lastVisit), safeSurgeries: safe(surgeries),\n  safeInsurance: safe(insurance), safeEmergName: safe(emergName),\n  safeEmergPhone: safe(emergPhone), safeDr: safe(doctorName)\n}}];\n"
+      },
+      "id": "code3",
+      "name": "Extract Tally Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        528
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "ec1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if3",
+      "name": "Error Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        704,
+        528
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.phone || '20XXXXXXXXXX', text: 'عذراً، في مشكلة صغيرة في الاستمارة. ممكن تعيد التسجيل؟ 🙏', delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "http3",
+      "name": "Error WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        928,
+        368
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT id FROM patient_intake WHERE patient_phone = '{{ $json.phone }}' AND form_submitted = true AND form_submitted_at > NOW() - INTERVAL '24 hours' LIMIT 1) as duplicate_id",
+        "options": {}
+      },
+      "id": "pg3",
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        928,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const extracted = $('Extract Tally Fields').first().json;\nconst pgRow = $input.first().json || {};\nreturn [{ json: { ...extracted, duplicate_id: pgRow.duplicate_id || null, is_duplicate: !!(pgRow.duplicate_id) } }];"
+      },
+      "id": "code4",
+      "name": "Merge With Extract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        640
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "dc1",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if4",
+      "name": "Duplicate IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        640
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json.phone, text: 'شكراً! 😊 لقد استلمنا بياناتك بالفعل. لا حاجة تعبئة الاستمارة مرة ثانية. نتطلع نشوفك في موعدك!', delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "http4",
+      "name": "Duplicate WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1584,
+        464
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\n\nconst sp = `You are an expert dental clinic intake analyst for an Egyptian dental clinic. Analyze patient intake forms and return ONLY valid JSON.\n\nMANDATORY RISK OVERRIDES — these rules ALWAYS apply regardless of other factors:\n1. ANY allergy to local anesthetics (lidocaine, novocaine, articaine, prilocaine, mepivacaine) → risk_level MUST be \"high\" AND risk_score MUST be ≥70\n2. Heart disease (any type: coronary, valve, congenital, cardiomyopathy, arrhythmia) → risk_level MUST be \"high\" AND risk_score MUST be ≥70\n3. Uncontrolled hypertension OR patient on multiple antihypertensive medications → risk_level MUST be \"high\" AND risk_score MUST be ≥65\n4. BOTH anesthetic allergy AND heart disease present → risk_level MUST be \"high\", risk_score MUST be ≥75\n5. Anticoagulants (warfarin, heparin, clopidogrel, aspirin daily) + dental procedure → risk_level MUST be \"emergency\"\n6. Active severe infection + uncontrolled diabetes → risk_level MUST be \"emergency\"\n\nRISK SCORING GUIDE:\n- EMERGENCY (80-100): chest pain during dental work, severe active bleeding, anticoagulants + invasive procedure, uncontrolled diabetes + infection, heart valve disease needing antibiotic prophylaxis\n- HIGH (60-79): ANY local anesthetic allergy, heart disease, uncontrolled hypertension, blood disorders, severe dental anxiety with cardiac history, latex allergy, bisphosphonates\n- MEDIUM (30-59): controlled diabetes, controlled hypertension on single med, 2+ years no dental visit, multiple medications (3+), moderate anxiety\n- LOW (0-29): healthy patient, no systemic conditions, no allergies, recent dental visit, single routine medication\n\nDENTAL RED FLAGS (include in red_flags array if present):\n- Lidocaine/anesthetic allergy → \"Cannot use standard local anesthetic — requires alternative protocol\"\n- Heart disease → \"Cardiac risk — check if antibiotic prophylaxis needed per AHA guidelines\"\n- Hypertension on multiple meds → \"BP monitoring required before procedure\"\n- Blood thinners → \"Bleeding risk — consult physician before extraction/surgery\"\n- Diabetes → \"Poor healing risk — check HbA1c, monitor post-op\"\n- Latex allergy → \"Latex-free environment required\"\n- Bisphosphonates → \"MRONJ risk — consult before bone work\"\n- Pregnancy → \"X-ray precautions, avoid certain medications\"\n\nReturn ONLY this JSON object, no other text:\n{\"risk_level\":\"low|medium|high|emergency\",\"risk_score\":0,\"red_flags\":[],\"staff_note_ar\":\"\",\"staff_note_en\":\"\",\"latex_free_needed\":false,\"antibiotic_prophylaxis_needed\":false,\"xray_approved\":true,\"patient_message_ar\":\"warm arabic confirmation max 80 words with prep tip\",\"prep_instructions_ar\":\"\",\"recommended_priority\":\"routine|priority|urgent|emergency\"}\n\nPatient data: ${JSON.stringify({name:d.patientName,dob:d.dob,gender:d.gender,complaint:d.chiefComplaint,allergies:d.allergies,meds:d.medications,conditions:d.conditions,dental:d.dentalConcerns,last_visit:d.lastVisit,anxiety:d.dentalAnxiety,surgeries:d.surgeries,xray:d.xrayConsent,doctor:d.doctorName})}`;\n\nreturn [{ json: {\n  ...d,\n  groqPayload: {\n    model: 'llama-3.3-70b-versatile',\n    messages: [\n      { role: 'system', content: sp },\n      { role: 'user', content: 'Analyze this patient intake and return the JSON risk assessment. Remember: apply ALL mandatory overrides first.' }\n    ],\n    temperature: 0.1,\n    max_tokens: 1024,\n    response_format: { type: 'json_object' }\n  }\n}}];"
+      },
+      "id": "code5",
+      "name": "Build Groq Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        784
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.groqPayload) }}",
+        "options": {}
+      },
+      "id": "http5",
+      "name": "Call Groq AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1808,
+        784
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const groqRaw = $input.all()[0].json;\nconst intakeData = $('Extract Tally Fields').first().json;\n\nlet analysis = {};\ntry {\n  const content = groqRaw.choices[0].message.content;\n  analysis = JSON.parse(content);\n} catch(e) {\n  analysis = {\n    risk_level: 'low', risk_score: 20, red_flags: [],\n    staff_note_ar: 'مريض روتيني — لا ملاحظات خاصة',\n    staff_note_en: 'Routine patient - no special notes',\n    latex_free_needed: false,\n    antibiotic_prophylaxis_needed: false,\n    xray_approved: intakeData.xrayConsent,\n    patient_message_ar: 'شكراً ' + intakeData.patientName + '! ✅ استلمنا بياناتك بنجاح. نتطلع نشوفك في موعدك! 😊',\n    prep_instructions_ar: 'يرجى تفريش أسنانك جيداً قبل الزيارة وإحضار أي تقارير طبية سابقة.',\n    recommended_priority: 'routine'\n  };\n}\n\nconst safe = (s) => String(s || '').replace(/'/g, \"''\");\nconst redFlagsStr = Array.isArray(analysis.red_flags) ? analysis.red_flags.join(', ') : (analysis.red_flags || '');\n\nreturn [{ json: {\n  ...intakeData,\n  riskLevel: analysis.risk_level || 'low',\n  riskScore: analysis.risk_score || 0,\n  redFlags: redFlagsStr,\n  staffNoteAr: analysis.staff_note_ar || '',\n  staffNoteEn: analysis.staff_note_en || '',\n  latexFree: analysis.latex_free_needed || false,\n  antibioticNeeded: analysis.antibiotic_prophylaxis_needed || false,\n  xrayApproved: analysis.xray_approved || false,\n  patientMessageAr: analysis.patient_message_ar || '',\n  prepInstructions: analysis.prep_instructions_ar || '',\n  priority: analysis.recommended_priority || 'routine',\n  safeStaffNote: safe(analysis.staff_note_ar || ''),\n  safeRedFlags: safe(redFlagsStr),\n  safePrep: safe(analysis.prep_instructions_ar || ''),\n  safePatientMsg: safe(analysis.patient_message_ar || '')\n}}];\n"
+      },
+      "id": "code6",
+      "name": "Parse Groq Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        784
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "em1",
+              "leftValue": "={{ $json.riskLevel }}",
+              "rightValue": "emergency",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if5",
+      "name": "Emergency IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        784
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: '20XXXXXXXXXX', text: '🚨 حالة طارئة — ' + $json.patientName + ' | ' + $json.phone + ' | خطر: ' + $json.riskScore + '/100 | ' + $json.redFlags, delay: 500 }) }}",
+        "options": {}
+      },
+      "id": "http6",
+      "name": "Emergency Alert WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2464,
+        608
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "hi1",
+              "leftValue": "={{ $json.riskLevel }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if6",
+      "name": "High IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        944
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: '20XXXXXXXXXX', text: '⚠️ مريض عالي الخطورة — ' + $json.patientName + ' | ' + $json.phone + ' | خطر: ' + $json.riskScore + '/100 | ' + $json.staffNoteAr, delay: 500 }) }}",
+        "options": {}
+      },
+      "id": "http7",
+      "name": "High Alert WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2688,
+        800
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO patient_intake (patient_phone, patient_name, doctor_name, date_of_birth, gender, chief_complaint, allergies, current_medications, chronic_conditions, dental_concerns, last_dental_visit, previous_surgeries, insurance_provider, emergency_contact_name, emergency_contact_phone, xray_consent, risk_level, risk_score, red_flags, staff_note, prep_instructions, form_submitted, form_submitted_at, staff_alerted, tally_response_id) VALUES ('{{ $('Parse Groq Response').first().json.safePhone }}', '{{ $('Parse Groq Response').first().json.safeName }}', '{{ $('Parse Groq Response').first().json.safeDr }}', '{{ $('Parse Groq Response').first().json.safeDob }}', '{{ $('Parse Groq Response').first().json.safeGender }}', '{{ $('Parse Groq Response').first().json.safeComplaint }}', '{{ $('Parse Groq Response').first().json.safeAllergies }}', '{{ $('Parse Groq Response').first().json.safeMeds }}', '{{ $('Parse Groq Response').first().json.safeConditions }}', '{{ $('Parse Groq Response').first().json.safeDentalConcerns }}', '{{ $('Parse Groq Response').first().json.safeLastVisit }}', '{{ $('Parse Groq Response').first().json.safeSurgeries }}', '{{ $('Parse Groq Response').first().json.safeInsurance }}', '{{ $('Parse Groq Response').first().json.safeEmergName }}', '{{ $('Parse Groq Response').first().json.safeEmergPhone }}', {{ $('Parse Groq Response').first().json.xrayConsent }}, '{{ $('Parse Groq Response').first().json.riskLevel }}', {{ $('Parse Groq Response').first().json.riskScore }}, '{{ $('Parse Groq Response').first().json.safeRedFlags }}', '{{ $('Parse Groq Response').first().json.safeStaffNote }}', '{{ $('Parse Groq Response').first().json.safePrep }}', true, NOW(), {{ $('Parse Groq Response').first().json.riskLevel === 'high' || $('Parse Groq Response').first().json.riskLevel === 'emergency' }}, '{{ $('Parse Groq Response').first().json.responseId }}')",
+        "options": {}
+      },
+      "id": "pg4",
+      "name": "Save to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2912,
+        864
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Clinic PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1v66CBv17iafAL_0c7cUt7gi0um2JOacHnI2ZwRg2YXU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Patient Intake",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ new Date().toISOString() }}",
+            "Patient Name": "={{ $('Parse Groq Response').first().json.patientName }}",
+            "Phone": "={{ $('Parse Groq Response').first().json.phone }}",
+            "Date of Birth": "={{ $('Parse Groq Response').first().json.dob }}",
+            "Gender": "={{ $('Parse Groq Response').first().json.gender }}",
+            "Chief Complaint": "={{ $('Parse Groq Response').first().json.chiefComplaint }}",
+            "Allergies": "={{ $('Parse Groq Response').first().json.allergies }}",
+            "Medications": "={{ $('Parse Groq Response').first().json.medications }}",
+            "Chronic Conditions": "={{ $('Parse Groq Response').first().json.conditions }}",
+            "Dental Concerns": "={{ $('Parse Groq Response').first().json.dentalConcerns }}",
+            "Last Dental Visit": "={{ $('Parse Groq Response').first().json.lastVisit }}",
+            "Previous Surgeries": "={{ $('Parse Groq Response').first().json.surgeries }}",
+            "Insurance": "={{ $('Parse Groq Response').first().json.insurance }}",
+            "Emergency Contact": "={{ $('Parse Groq Response').first().json.emergName }}",
+            "Doctor": "={{ $('Parse Groq Response').first().json.doctorName }}",
+            "Risk Level": "={{ $('Parse Groq Response').first().json.riskLevel }}",
+            "Risk Score": "={{ $('Parse Groq Response').first().json.riskScore }}",
+            "Red Flags": "={{ $('Parse Groq Response').first().json.redFlags }}",
+            "Staff Note": "={{ $('Parse Groq Response').first().json.staffNoteAr }}",
+            "Prep Instructions": "={{ $('Parse Groq Response').first().json.prepInstructions }}",
+            "Form Submitted": "TRUE"
+          }
+        },
+        "options": {}
+      },
+      "id": "gs1",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3120,
+        864
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.EVOLUTION_API_URL }}/message/sendText/whatsapp-bot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{ $env.EVOLUTION_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $('Parse Groq Response').first().json.phone, text: $('Parse Groq Response').first().json.patientMessageAr, delay: 1000 }) }}",
+        "options": {}
+      },
+      "id": "http8",
+      "name": "Send Patient Confirmation WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3344,
+        864
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Tally Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Received",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 Received": {
+      "main": [
+        [
+          {
+            "node": "Extract Tally Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tally Fields": {
+      "main": [
+        [
+          {
+            "node": "Error Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Check": {
+      "main": [
+        [
+          {
+            "node": "Error WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Merge With Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge With Extract": {
+      "main": [
+        [
+          {
+            "node": "Duplicate IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate IF": {
+      "main": [
+        [
+          {
+            "node": "Duplicate WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Groq Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Groq Payload": {
+      "main": [
+        [
+          {
+            "node": "Call Groq AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Groq AI": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq Response": {
+      "main": [
+        [
+          {
+            "node": "Emergency IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emergency IF": {
+      "main": [
+        [
+          {
+            "node": "Emergency Alert WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "High IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High IF": {
+      "main": [
+        [
+          {
+            "node": "High Alert WA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Send Patient Confirmation WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emergency Alert WA": {
+      "main": [
+        [
+          {
+            "node": "Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Alert WA": {
+      "main": [
+        [
+          {
+            "node": "Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge For Save": {
+      "main": [
+        [
+          {
+            "node": "Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Africa/Cairo",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}
